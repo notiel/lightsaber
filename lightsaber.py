@@ -2,12 +2,13 @@ import serial
 from collections import deque
 
 SWING_HIGH_W =  150000     #threshold for angular acceleration for swing detect in CU(conditional unit)
-STAB_LOW_W = 10000        #low threshold for angular velocity for stab detect in CU
-STAB_HIGH_A = 10000000    #threshold for acceleration for stab detect in CU
-HIT_HIGH_A = 16000000      #threshols for acceleration for hit detect in CU
-SWING_TIME = 10           #number of measurements to detect swing
-HIT_TIME = 5              #number of measurements to detect hit using acceleration
-STAB_TIME = 5             #number of measurements to detect stab
+STAB_LOW_W = 10000         #low threshold for angular velocity for stab detect in CU
+STAB_HIGH_A = 10000000     #threshold for acceleration for stab detect in CU
+HIT_HIGH_A = 200000000     #threshols for acceleration for hit detect in CU
+SWING_TIME = 10            #number of measurements to detect swing
+HIT_TIME = 10              #number of measurements to detect hit using acceleration
+STAB_TIME = 5              #number of measurements to detect stab
+HIT_PAUSE = 50             #minimal time pause between different hits
 
 def update_acc_data(parameters:dict, actions: dict,  a_curr: int, time: int):
     """
@@ -17,12 +18,8 @@ def update_acc_data(parameters:dict, actions: dict,  a_curr: int, time: int):
     :param action: list of actions states
     :return:
     """
-    if parameters['a_prev'] < a_curr and parameters['a_rising'] == 0:
-        parameters['a_rising'] = 1
+    if a_curr >= HIT_HIGH_A:
         parameters['a_start'] = time
-    if parameters['a_prev'] > a_curr:
-        parameters['a_rising'] = 0
-        actions['stab'] = 0
 
 def update_gyro_data(parameters: dict, actions: dict, w_curr: int, time: int):
     """
@@ -55,12 +52,17 @@ def check_hit_with_accelerometer_and_change(acc_data: deque, time: int, paramete
     :param hit: state of hit action
     :return:
     """
-    if parameters['a_rising'] and (time - parameters['a_start']) > HIT_TIME:
-        div = sum([acc_data[0][i] * acc_data[HIT_TIME-1][i] for i in range(3)])
-        if div > HIT_HIGH_A:
-            return 1
+    if (time - parameters['a_start']) < HIT_TIME:
+        change = 0
+        for i in range(min(HIT_TIME-1, len(acc_data)-1)):
+            mul = sum([acc_data[i][j] * acc_data[i + 1][j] for j in range(3)])
+            if mul < 0:
+                change += 1
+            if change > 0 and hit == 0 and (not parameters['hit_starts'] or time-parameters['hit_starts'][-1] > HIT_PAUSE):
+                return 1
+        if change == 0:
+            return 0
     return 0
-
 
 def check_hit_with_change(acc_data: deque, time: int, parameters, hit) ->bool:
     """
@@ -132,12 +134,11 @@ def get_new_states(acc_data: deque, gyro_data: deque, parameters: dict, data:str
     w_curr = sum([gyro[i]*gyro[i] for i in range(3)])
     update_acc_data(parameters, actions, a_curr, time)
     update_gyro_data(parameters, actions, w_curr, time)
-    actions['hit'] = check_hit_with_change(acc_data, time, parameters, actions['hit'])
+    actions['hit'] = check_hit_with_accelerometer_and_change(acc_data, time, parameters, actions['hit'])
     if not actions['swing']:
         actions['swing'] = check_swing(gyro_data, time, parameters)
     if not actions['stab']:
         actions['stab'] = check_stab(acc_data, gyro_data, time, parameters)
-    parameters['a_prev'] = a_curr
     parameters['w_prev'] = w_curr
     return actions
 
@@ -145,11 +146,11 @@ def main():
 
     acc_data = deque(maxlen=10)
     gyro_data = deque(maxlen=10)
-    parameters = {"a_prev":0,  "w_prev":0, 'a_rising':0, 'w_rising':0,  'w_low':0, 'a_start':-1,  'w_start':-1, 'hit_start': -1, 'stab_start':-1,
-                  'w_low_start':-1, 'swing_starts':[], 'hit_starts':[], 'stab_starts':[]}
+    parameters = {"w_prev":0, 'a_high':0, 'w_rising':0,  'w_low':0, 'a_start':-1,  'w_start':-1, 'hit_start': -1, 'stab_start':-1,
+                  'w_low_start':-1, 'hit_starts':[]}
     actions = {'spin':0, 'swing':0, 'hit':0, 'stab':0}
     time = 0
-    f = open("res_data1.txt")
+    f = open("res_data.txt")
     for data in f:
         time+=1
         actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
