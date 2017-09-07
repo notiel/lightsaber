@@ -4,7 +4,8 @@ from collections import deque
 SWING_HIGH_W =  150000     #threshold for angular acceleration for swing detect in CU(conditional unit)
 STAB_LOW_W = 10000         #low threshold for angular velocity for stab detect in CU
 STAB_HIGH_A = 10000000     #threshold for acceleration for stab detect in CU
-HIT_HIGH_A = 85000000      #threshols for acceleration for hit detect in CU
+#HIT_HIGH_A = 0
+HIT_HIGH_A = 85000000     #threshols for acceleration for hit detect in CU
 SWING_TIME = 10            #number of measurements to detect swing
 HIT_TIME = 10              #number of measurements to detect hit using acceleration
 STAB_TIME = 5              #number of measurements to detect stab
@@ -67,7 +68,6 @@ def check_hit_with_accelerometer_and_change(acc_data: deque, time: int, paramete
             return 0
     return 0
 
-
 def check_hit_with_change(acc_data: deque, time: int, parameters, hit) ->bool:
     """
     Function detects if accelerometer data in acc_data contains hit
@@ -84,6 +84,9 @@ def check_hit_with_change(acc_data: deque, time: int, parameters, hit) ->bool:
         if mul<0:
             change+=1
         if change > 0 and hit == 0:
+            print('HIT! at %i' % time)
+            if not time in parameters['hit_starts']:
+                parameters['hit_starts'].append(time)
             return 1
     if change == 0:
         return 0
@@ -100,6 +103,9 @@ def check_swing(gyro_data, time, parameters) -> bool:
     if parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME:
         div = sum([(gyro_data[SWING_TIME-1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME-1][i] - gyro_data[0][i]) for i in range(3)])
         if div / SWING_TIME > SWING_HIGH_W:
+            print('SWING started at %i' % parameters['w_start'])
+            if not parameters['w_start'] in parameters['swing_starts']:
+                parameters['swing_starts'].append(parameters['w_start'])
             return 1
     return 0
 
@@ -115,6 +121,9 @@ def check_stab(acc_data, gyro_data, time, parameters) -> bool:
     """
     div = sum([(acc_data[-1][i] - acc_data[0][i]) * (acc_data[-1][i] - acc_data[0][i]) for i in range(3)])
     if div > STAB_HIGH_A and parameters['w_low'] and time-parameters['w_low_start'] > STAB_TIME:
+        print('RUN!!! at %i' % parameters['a_start'])
+        if not parameters['a_start'] in parameters['stab_starts']:
+            parameters['stab_starts'].append(parameters['a_start'])
         return 1
     return 0
 
@@ -128,7 +137,6 @@ def get_new_states(acc_data: deque, gyro_data: deque, parameters: dict, data:str
     :param actions:  current state of each action (swing, spin, clash, stab)
     :return: new actions state
     """
-
     data = data.split(';')
     accel = list(map(int, data[0].split()))
     acc_data.append(accel)
@@ -151,13 +159,19 @@ def main():
     acc_data = deque(maxlen=10)
     gyro_data = deque(maxlen=10)
     parameters = {"w_prev":0, 'a_high':0, 'w_rising':0,  'w_low':0, 'a_start':-1,  'w_start':-1, 'hit_start': -1, 'stab_start':-1,
-                  'w_low_start':-1, 'hit_starts':[]}
+                  'w_low_start':-1, 'swing_starts':[], 'hit_starts':[], 'stab_starts':[]}
     actions = {'spin':0, 'swing':0, 'hit':0, 'stab':0}
     time = 0
-    f = open("res_data.txt")
+    f = open("res_data1.txt")
     for data in f:
         time+=1
         actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
+    print("Swing starts: %s" % " ".join(list(map(str, parameters['swing_starts']))))
+    print("Number of swings %s" % len(parameters['swing_starts']))
+    print("Hit starts: %s" % " ".join(list(map(str, parameters['hit_starts']))))
+    print("Number of hits %s" % len(parameters['hit_starts']))
+    print("Stab starts: %s" % " ".join(list(map(str, parameters['stab_starts']))))
+    print("Number of stabs %s" % len(parameters['stab_starts']))
 
 if __name__ == '__main__':
     main()
