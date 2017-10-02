@@ -1,4 +1,3 @@
-import serial
 from collections import deque
 
 SWING_HIGH_W =  150000     #threshold for angular acceleration for swing detect in CU(conditional unit)
