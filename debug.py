@@ -1,9 +1,9 @@
-import serial
+#import serial
 from collections import deque
 from math import sqrt
 
 SWING_HIGH_W = 1000000  # threshold for angular acceleration for swing detect in CU(conditional unit)
-SWING_LOW_W  = 200000
+SWING_LOW_W = 200000
 STAB_LOW_W = 1000000  # low threshold for angular velocity for stab detect in CU
 STAB_HIGH_A = 20000000  # threshold for acceleration for stab detect in CU
 # HIT_HIGH_A = 0
@@ -63,7 +63,6 @@ def update_gyro_data(parameters: dict, actions: dict, w_curr: int, time: int):
         actions['stab'] = 0
     if w_curr < SWING_LOW_W:
         parameters['w_rising'] = 0
-
 
 
 def check_hit_with_accelerometer_and_change(acc_data: deque, time: int, parameters: dict, hit: int) -> bool:
@@ -132,19 +131,21 @@ def check_new_swing(gyro_data, time, parameters, swing) -> bool:
     :return: 1 if swing else 0
     """
     if not swing:
-        div = sum([(gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) for i in
+        div = sum(
+            [(gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) for i
+             in
              [1, 2]])
-        if (parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME and div > SWING_HIGH_W) or (parameters['a_swing'] and (time - parameters['a_swing_start'] > SWING_TIME)):
+        if (parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME and div > SWING_HIGH_W) or (
+            parameters['a_swing'] and (time - parameters['a_swing_start'] > SWING_TIME)):
             print('SWING started at %i' % time)
             if not time in parameters['swing_starts']:
                 parameters['swing_starts'].append(time)
             return True
         return False
     if parameters['w_rising'] == 0:
-       print ('SWING ended at %i' % time)
-       return False
+        print('SWING ended at %i' % time)
+        return False
     return True
-
 
 
 def check_swing(gyro_data, time, parameters) -> bool:
@@ -209,7 +210,7 @@ def get_new_states(acc_data: deque, gyro_data: deque, parameters: dict, data: st
     update_acc_data(parameters, actions, a_curr, time)
     update_gyro_data(parameters, actions, w_curr, time)
     actions['hit'] = check_hit_with_accelerometer_and_change(acc_data, time, parameters, actions['hit'])
-    if time>10:
+    if time > 10:
         actions['swing'] = check_new_swing(gyro_data, time, parameters, actions['swing'])
     if not actions['stab']:
         actions['stab'] = check_stab(acc_data, gyro_data, time, parameters)
