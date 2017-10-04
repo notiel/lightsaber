@@ -1,9 +1,12 @@
 # import serial
-from collections import deque
+from collections import namedtuple
+from matplotlib import pyplot as plot
 
 # HIT_HIGH_A = 0
 import events
-from matplotlib import pyplot as plot
+import graph
+from math import pi, sin, cos
+from pyquaternion import Quaternion
 
 
 def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str, time: int, actions: dict) -> dict:
@@ -17,10 +20,8 @@ def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str,
     :param actions:  current state of each action (swing, spin, clash, stab)
     :return: new actions state
     """
-    data = data.split(';')
-    accel = list(map(int, data[0].split()))
+    accel, gyro = data_split(data)
     acc_data.append(accel)
-    gyro = list(map(int, data[1].split()))
     gyro_data.append(gyro)
     a_curr = sum([accel[i] * accel[i] for i in range(3)])
     w_curr = sum([gyro[i] * gyro[i] for i in [1, 2]])
@@ -33,6 +34,49 @@ def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str,
         actions['stab'] = events.check_stab(acc_data, gyro_data, time, parameters)
     parameters['w_prev'] = w_curr
     return actions
+
+
+def data_split(data):
+    """
+    splits data flow from specific strings into two lists
+    >>> data_split ("3909 304 -1591; 82 11 -39")
+    ([3909, 304, -1591], [82, 11, -39])
+    """
+    data = data.split(';')
+    accel = list(map(int, data[0].split()))
+    gyro = list(map(int, data[1].split()))
+    return accel, gyro
+
+
+def gyro_to_rad(gx, gy, gz):
+    """
+    convert gyro data to radians, by Camill
+    Could be wrong
+    """
+    #TODO: request assistance
+    g_s = 2000.0 / 32768 / 180 * pi  # GYRO_SCALE
+    return gx * g_s, gy * g_s, gz * g_s
+
+
+def quatern_from_data(data: str, delay: float) -> Quaternion:
+    """
+    expected that data contains radians
+    :param data:
+    :param delay:
+    :return:
+    """
+    _, (dgx, dgy, dgz) = data_split(data)
+    gx, gy, gz = gyro_to_rad(dgx, dgy, dgz)
+    # now it is time to use SO-driven-developement
+    # credits to https://stackoverflow.com/a/28757303/2730579
+    Vector3 = namedtuple('Vector3', 'x y z')
+    # created a vector with set delay but halved
+    hv = Vector3(x=float(gx * delay) / 2, y=float(gy * delay) / 2, z=float(gz * delay) / 2)
+    w: float = cos(hv.x) * cos(hv.y) * cos(hv.z) + sin(hv.x) * sin(hv.y) * sin(hv.z)
+    x: float = sin(hv.x) * cos(hv.y) * cos(hv.z) - cos(hv.x) * sin(hv.y) * sin(hv.z)
+    y: float = cos(hv.x) * sin(hv.y) * cos(hv.z) + sin(hv.x) * cos(hv.y) * sin(hv.z)
+    z: float = cos(hv.x) * cos(hv.y) * sin(hv.z) - sin(hv.x) * sin(hv.y) * cos(hv.z)
+    return Quaternion(w, x, y, z)
 
 
 def main():
@@ -49,34 +93,28 @@ def main():
     time = 0
     f = open("res_data.txt")
     detected_events = list()
+    quatertnion_data = list()
+    q_simple = Quaternion()
+
     for data in f:
         time += 1
         actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
+        q_simple = q_simple * quatern_from_data(data, delay=0.001) # this appends non-filtered quaternions from gyro
         detected_events.append(dict(actions))
+        quatertnion_data.append(q_simple)
 
-    plot.figure()
-    ox = [x for x in range(0, len(acc_data))]
-    for label in ['acc_x', 'acc_y', 'acc_z']:
-        index = ['acc_x', 'acc_y', 'acc_z'].index(label)
-        dots = [y[index] for y in acc_data]
-        plot.plot(ox, dots, label=label)
-    # swings:
-    print([str(x) for x in detected_events if x['swing']])
-    swing_stats = [y['swing'] for y in detected_events]
-    swing_dots = [10000 if state else 0 for state in swing_stats]
-    plot.plot(ox, swing_dots, 'black', label='swingsers', )
 
-    plot.xlabel('ms')
-    plot.ylabel('acc_data')
-    plot.legend()
+    # graph.plot_swings(gyro_data, detected_events)
+    graph.plot_quatern_wx(gyro_data, quatertnion_data)
+    graph.plot_quatern_yz(gyro_data, quatertnion_data)
     plot.show()
 
-    print("Swing starts: %s" % " ".join(list(map(str, parameters['swing_starts']))))
-    print("Number of swings %s" % len(parameters['swing_starts']))
-    print("Hit starts: %s" % " ".join(list(map(str, parameters['hit_starts']))))
-    print("Number of hits %s" % len(parameters['hit_starts']))
-    print("Stab starts: %s" % " ".join(list(map(str, parameters['stab_starts']))))
-    print("Number of stabs %s" % len(parameters['stab_starts']))
+    # print("Swing starts: %s" % " ".join(list(map(str, parameters['swing_starts']))))
+    # print("Number of swings %s" % len(parameters['swing_starts']))
+    # print("Hit starts: %s" % " ".join(list(map(str, parameters['hit_starts']))))
+    # print("Number of hits %s" % len(parameters['hit_starts']))
+    # print("Stab starts: %s" % " ".join(list(map(str, parameters['stab_starts']))))
+    # print("Number of stabs %s" % len(parameters['stab_starts']))
 
 
 if __name__ == '__main__':
