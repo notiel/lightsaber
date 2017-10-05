@@ -5,7 +5,7 @@ from matplotlib import pyplot as plot
 # HIT_HIGH_A = 0
 import events
 import graph
-from math import pi, sin, cos
+from math import pi, sin, cos, sqrt
 from pyquaternion import Quaternion
 
 
@@ -36,7 +36,7 @@ def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str,
     return actions
 
 
-def data_split(data):
+def data_split(data: str) -> (list, list):
     """
     splits data flow from specific strings into two lists
     >>> data_split ("3909 304 -1591; 82 11 -39")
@@ -48,12 +48,12 @@ def data_split(data):
     return accel, gyro
 
 
-def gyro_to_rad(gx, gy, gz):
+def gyro_to_rad(gx: int, gy: int, gz: int) -> (float, float, float):
     """
     convert gyro data to radians, by Camill
     Could be wrong
     """
-    #TODO: request assistance
+    # TODO: request assistance
     g_s = 2000.0 / 32768 / 180 * pi  # GYRO_SCALE
     return gx * g_s, gy * g_s, gz * g_s
 
@@ -72,11 +72,39 @@ def quatern_from_data(data: str, delay: float) -> Quaternion:
     Vector3 = namedtuple('Vector3', 'x y z')
     # created a vector with set delay but halved
     hv = Vector3(x=float(gx * delay) / 2, y=float(gy * delay) / 2, z=float(gz * delay) / 2)
+    # SLOW!! could precache sin and cosines, to speedup 4x
     w: float = cos(hv.x) * cos(hv.y) * cos(hv.z) + sin(hv.x) * sin(hv.y) * sin(hv.z)
     x: float = sin(hv.x) * cos(hv.y) * cos(hv.z) - cos(hv.x) * sin(hv.y) * sin(hv.z)
     y: float = cos(hv.x) * sin(hv.y) * cos(hv.z) + sin(hv.x) * cos(hv.y) * sin(hv.z)
     z: float = cos(hv.x) * cos(hv.y) * sin(hv.z) - sin(hv.x) * sin(hv.y) * cos(hv.z)
     return Quaternion(w, x, y, z)
+
+
+def fast_quatern_from_data(prev_q: Quaternion, data: str, delay: float) -> Quaternion:
+    """
+    expected that data contains radians
+    :param data:
+    :param delay:
+    :return:
+    """
+    _, (dgx, dgy, dgz) = data_split(data)
+    gx, gy, gz = gyro_to_rad(dgx, dgy, dgz)
+    w, x, y, z = prev_q.elements
+    # this one is using direct quaternion calculation.
+    # stolen from MadgwickAHRS.cs
+    # // Compute rate of change of quaternion
+    qDot1 = 0.5 * (-x * gx - y * gy - z * gz)
+    qDot2 = 0.5 * (w * gx + y * gz - z * gy)
+    qDot3 = 0.5 * (w * gy - x * gz + z * gx)
+    qDot4 = 0.5 * (w * gz + x * gy - y * gx)
+    # // Integrate to yield quaternion
+    w += qDot1 * delay
+    x += qDot2 * delay
+    y += qDot3 * delay
+    z += qDot4 * delay
+    # // normalise quaternion
+    norm = 1.0 / sqrt(w * w + x * x + y * y + z * z)
+    return Quaternion(w * norm, x * norm, y * norm, z * norm)
 
 
 def main():
@@ -93,20 +121,23 @@ def main():
     time = 0
     f = open("res_data.txt")
     detected_events = list()
-    quatertnion_data = list()
-    q_simple = Quaternion()
+    #quatertnion_data = list()
+    quatertnion_data2 = list()
+    #q_simple = Quaternion()
+    q_fast = Quaternion()
 
     for data in f:
         time += 1
         actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
-        q_simple = q_simple * quatern_from_data(data, delay=0.001) # this appends non-filtered quaternions from gyro
+        #q_simple = q_simple * quatern_from_data(data, delay=0.001)  # this appends non-filtered quaternions from gyro
+        q_fast = fast_quatern_from_data(q_fast, data, delay=0.001)  # this obtains fast quaternion from gyro
         detected_events.append(dict(actions))
-        quatertnion_data.append(q_simple)
-
+        #quatertnion_data.append(q_simple)
+        quatertnion_data2.append(q_fast)
 
     # graph.plot_swings(gyro_data, detected_events)
-    graph.plot_quatern_wx(gyro_data, quatertnion_data)
-    graph.plot_quatern_yz(gyro_data, quatertnion_data)
+    graph.plot_quatern_wx(gyro_data, quatertnion_data2)
+    graph.plot_quatern_yz(gyro_data, quatertnion_data2)
     plot.show()
 
     # print("Swing starts: %s" % " ".join(list(map(str, parameters['swing_starts']))))
