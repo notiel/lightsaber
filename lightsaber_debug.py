@@ -3,8 +3,8 @@ from collections import deque
 from math import sqrt
 
 SWING_HIGH_W = 1000000  # threshold for angular acceleration for swing detect in CU(conditional unit)
-SWING_LOW_W  = 200000
-STAB_LOW_W = 1000000  # low threshold for angular velocity for stab detect in CU
+SWING_LOW_W  = 150000
+STAB_LOW_W = 700000  # low threshold for angular velocity for stab detect in CU
 STAB_HIGH_A = 20000000  # threshold for acceleration for stab detect in CU
 # HIT_HIGH_A = 0
 HIT_HIGH_A = 200000000  # threshols for acceleration for hit detect in CU
@@ -13,7 +13,7 @@ SWING_TIME = 10  # number of measurements to detect swing
 HIT_TIME = 10  # number of measurements to detect hit using acceleration
 STAB_TIME = 5  # number of measurements to detect stab
 HIT_PAUSE = 50  # minimal time pause between different hits
-SWING_LOW_A = 17000000
+SWING_LOW_A = 19000000
 
 
 def update_acc_data(parameters: dict, actions: dict, a_curr: int, time: int):
@@ -140,7 +140,7 @@ def check_new_swing(gyro_data, time, parameters, swing) -> bool:
                 parameters['swing_starts'].append(time)
             return True
         return False
-    if parameters['w_rising'] == 0:
+    if parameters['w_rising'] == 0 and parameters['a_swing'] = 0:
        print ('SWING ended at %i' % time)
        return False
     return True
