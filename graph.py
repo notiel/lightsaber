@@ -1,7 +1,8 @@
 from matplotlib import pyplot as plot
+from mpl_toolkits.mplot3d import Axes3D
 
 
-def plot_swings(gyro_data, detected_events):
+def plot_swings(detected_events,gyro_data):
     plot.figure()
     ox = back_gyro(gyro_data)
     swing_stats = [y['swing'] for y in detected_events]
@@ -31,18 +32,18 @@ def back_gyro(gyro_data):
     return ox
 
 
-def plot_quatern_wx(gyro_data, quatertn_data):
+def plot_quatern_wx(quatertn_data, gyro_data):
     plot.figure()
     ox = back_gyro(gyro_data)  # swings:
-    q_w = [(y[0]*10000)-10000 for y in quatertn_data]
-    plot.plot(ox, q_w,'black', label='q_w')
+    q_w = [(y[0] * 10000) - 10000 for y in quatertn_data]
+    plot.plot(ox, q_w, 'black', label='q_w')
     q_x = [y[1] * 10000 for y in quatertn_data]
     plot.plot(ox, q_x, 'cyan', label='q_x')
     plot.legend()
     return None
 
 
-def plot_quatern_yz(gyro_data, quatertn_data):
+def plot_quatern_yz(quatertn_data, gyro_data):
     plot.figure()
     ox = back_gyro(gyro_data)  # swings:
     q_y = [y[2] * 10000 for y in quatertn_data]
@@ -50,4 +51,23 @@ def plot_quatern_yz(gyro_data, quatertn_data):
     q_z = [y[3] * 10000 for y in quatertn_data]
     plot.plot(ox, q_z, 'cyan', label='q_z')
     plot.legend()
+    return None
+
+
+def plot_vector3(listx, listy, listz):
+    fig=plot.figure()
+    ax=fig.add_subplot(111, projection='3d')
+    ax.plot(xs=listx, ys=listy, zs=listz)
+    pass
+
+
+def plot_quaternion_evo(qlist):
+    listw, listx, listy, listz = zip (*qlist)
+    plot_vector3(listx, listy, listz)
+    pass
+
+
+def plot_vector_evo(vlist):
+    listx, listy, listz = zip(*vlist)
+    plot_vector3(listx, listy, listz)
     return None

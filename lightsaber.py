@@ -1,12 +1,13 @@
 # import serial
-from collections import namedtuple
+from collections import deque
+
 from matplotlib import pyplot as plot
+from pyquaternion import Quaternion
 
 # HIT_HIGH_A = 0
 import events
 import graph
-from math import pi, sin, cos, sqrt
-from pyquaternion import Quaternion
+from quaternion_algs import slow_quatern_from_data, madgwick_filtered, raw_quatern_from_data
 
 
 def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str, time: int, actions: dict) -> dict:
@@ -48,70 +49,46 @@ def data_split(data: str) -> (list, list):
     return accel, gyro
 
 
-def gyro_to_rad(gx: int, gy: int, gz: int) -> (float, float, float):
-    """
-    convert gyro data to radians, by Camill
-    Could be wrong
-    """
-    # TODO: request assistance
-    g_s = 2000.0 / 32768 / 180 * pi  # GYRO_SCALE
-    return gx * g_s, gy * g_s, gz * g_s
+# TODO fix interface
+# Probably should migrate to OOP
+# or elif
+# BLAME ME! Ariksu
+def acc_from_data(_, data):
+    return data_split(data)[0]
 
 
-def quatern_from_data(data: str, delay: float) -> Quaternion:
-    """
-    expected that data contains radians
-    :param data:
-    :param delay:
-    :return:
-    """
-    _, (dgx, dgy, dgz) = data_split(data)
-    gx, gy, gz = gyro_to_rad(dgx, dgy, dgz)
-    # now it is time to use SO-driven-developement
-    # credits to https://stackoverflow.com/a/28757303/2730579
-    Vector3 = namedtuple('Vector3', 'x y z')
-    # created a vector with set delay but halved
-    hv = Vector3(x=float(gx * delay) / 2, y=float(gy * delay) / 2, z=float(gz * delay) / 2)
-    # SLOW!! could precache sin and cosines, to speedup 4x
-    w: float = cos(hv.x) * cos(hv.y) * cos(hv.z) + sin(hv.x) * sin(hv.y) * sin(hv.z)
-    x: float = sin(hv.x) * cos(hv.y) * cos(hv.z) - cos(hv.x) * sin(hv.y) * sin(hv.z)
-    y: float = cos(hv.x) * sin(hv.y) * cos(hv.z) + sin(hv.x) * cos(hv.y) * sin(hv.z)
-    z: float = cos(hv.x) * cos(hv.y) * sin(hv.z) - sin(hv.x) * sin(hv.y) * cos(hv.z)
-    return Quaternion(w, x, y, z)
+def gyro_from_data(_, data):
+    return data_split(data)[1]
 
 
-def fast_quatern_from_data(prev_q: Quaternion, data: str, delay: float) -> Quaternion:
-    """
-    expected that data contains radians
-    :param data:
-    :param delay:
-    :return:
-    """
-    _, (dgx, dgy, dgz) = data_split(data)
-    gx, gy, gz = gyro_to_rad(dgx, dgy, dgz)
-    w, x, y, z = prev_q.elements
-    # this one is using direct quaternion calculation.
-    # stolen from MadgwickAHRS.cs
-    # // Compute rate of change of quaternion
-    qDot1 = 0.5 * (-x * gx - y * gy - z * gz)
-    qDot2 = 0.5 * (w * gx + y * gz - z * gy)
-    qDot3 = 0.5 * (w * gy - x * gz + z * gx)
-    qDot4 = 0.5 * (w * gz + x * gy - y * gx)
-    # // Integrate to yield quaternion
-    w += qDot1 * delay
-    x += qDot2 * delay
-    y += qDot3 * delay
-    z += qDot4 * delay
-    # // normalise quaternion
-    norm = 1.0 / sqrt(w * w + x * x + y * y + z * z)
-    return Quaternion(w * norm, x * norm, y * norm, z * norm)
+def actions_mock(_, __, actions):
+    return actions
+
+
+def orientation_evo(qlist):
+    vlist = [q.rotate((1, 0, 0)) for q in qlist]
+    graph.plot_vector_evo(vlist)
+    pass
+
+
+def create_data_storage(config):
+    initial = {
+        'collect_acc_data': [[0, 0, 0]],
+        'collect_gyro_data': [[0, 0, 0]],
+        'collect_events': [{'spin': 0, 'swing': 0, 'hit': 0, 'stab': 0}],
+        'slow_orientation': [Quaternion()],
+        'fast_orientation': [Quaternion()],
+        'filtered_orientation': [Quaternion()],
+    }
+    created_storage = {key: initial[key] for key in config if key in initial}
+    return created_storage
 
 
 def main():
-    # acc_data = deque(maxlen=10)
-    # gyro_data = deque(maxlen=10)
-    acc_data = list()
-    gyro_data = list()
+    acc_data = deque(maxlen=10)
+    gyro_data = deque(maxlen=10)
+    acc_data_log = list()
+    gyro_data_log = list()
 
     parameters = {"w_prev": 0, 'a_high': 0, 'w_rising': 0, 'w_low': 0, 'a_start': -1, 'w_start': -1, 'hit_start': -1,
                   'stab_start': -1, 'a_swing': 0,
@@ -120,24 +97,38 @@ def main():
     actions = {'spin': 0, 'swing': 0, 'hit': 0, 'stab': 0}
     time = 0
     f = open("res_data.txt")
+    config = {
+        'delay': 0.001,
+        'beta': 0.03,
+        'collect_acc_data': True,
+        'collect_gyro_data': True,
+        'collect_events': True,
+        'plot_swing': False,
+        'slow_orientation': False,
+        'fast_orientation': True,
+        'filtered_orientation': True,
+    }
+    log_storage = create_data_storage(config)
     detected_events = list()
-    #quatertnion_data = list()
+    # quatertnion_data = list()
     quatertnion_data2 = list()
-    #q_simple = Quaternion()
+    quatertnion_data3 = list()
+    q_data=[Quaternion()]
+    v_raw = (1, 0, 0)
+    v_filtered = (1, 0, 0)
+    # q_simple = Quaternion()
     q_fast = Quaternion()
+    q_madj = Quaternion()
+    raw_log = list()
+    filtered_log = list()
 
     for data in f:
         time += 1
         actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
-        #q_simple = q_simple * quatern_from_data(data, delay=0.001)  # this appends non-filtered quaternions from gyro
-        q_fast = fast_quatern_from_data(q_fast, data, delay=0.001)  # this obtains fast quaternion from gyro
-        detected_events.append(dict(actions))
-        #quatertnion_data.append(q_simple)
-        quatertnion_data2.append(q_fast)
+        calculate_and_collect(data, config, log_storage, actions=actions)
 
-    # graph.plot_swings(gyro_data, detected_events)
-    graph.plot_quatern_wx(gyro_data, quatertnion_data2)
-    graph.plot_quatern_yz(gyro_data, quatertnion_data2)
+
+    plot_collected(config, log_storage)
     plot.show()
 
     # print("Swing starts: %s" % " ".join(list(map(str, parameters['swing_starts']))))
@@ -146,6 +137,73 @@ def main():
     # print("Number of hits %s" % len(parameters['hit_starts']))
     # print("Stab starts: %s" % " ".join(list(map(str, parameters['stab_starts']))))
     # print("Number of stabs %s" % len(parameters['stab_starts']))
+
+
+def plot_collected(config, storage):
+    acc_data_log = storage['collect_acc_data']
+    gyro_data_log = storage['collect_gyro_data']
+    plots = {
+        'plot_swing': {'exec': graph.plot_swings,
+                       'args': [gyro_data_log]},
+        'slow_orientation': {'exec': orientation_evo,
+                             'args': []},
+        'fast_orientation': {'exec': orientation_evo,
+                             'args': []},
+        'filtered_orientation': {'exec': orientation_evo,
+                                 'args': []},
+    }
+    for p_type in config:
+        if config[p_type] is True and p_type in plots:
+            plots[p_type]['exec'](storage[p_type], *plots[p_type]['args'])
+
+
+    # graph.plot_swings(gyro_data, detected_events)
+    # graph.plot_quatern_yz(gyro_data_log, quatertnion_data2)
+    # graph.plot_quatern_yz(gyro_data_log, quatertnion_data3)
+    # graph.plot_quaternion_evo(quatertnion_data2)
+    # graph.plot_quaternion_evo(quatertnion_data3)
+    # TODO resolve orientation vector regress
+    # graph.plot_vector_evo(raw_log)
+    # graph.plot_vector_evo(filtered_log)
+
+    pass
+
+
+def calculate_and_collect(data, config, storage, actions):
+    delay = config['delay']
+    beta = config['beta']
+    vector = {
+        'collect_acc_data': {'exec': acc_from_data,
+                             'kw': {}},
+        'collect_gyro_data': {'exec': gyro_from_data,
+                              'kw': {}},
+        'collect_events': {'exec': actions_mock,
+                           'kw': {'actions': actions}},
+        'slow_orientation': {'exec': slow_quatern_from_data,
+                             'kw': {'delay': delay}},
+        'fast_orientation': {'exec': raw_quatern_from_data,
+                             'kw': {'delay': delay}},
+        'filtered_orientation': {'exec': madgwick_filtered,
+                                 'kw': {'delay': delay, 'beta': beta}},
+    }
+    for v_type in config:
+        if config[v_type] is True and v_type in vector:
+            log = storage[v_type]
+            current = log[-1]
+            new = vector[v_type]['exec'](current, data, **vector[v_type]['kw'])
+            storage[v_type].append(new)
+
+    # acc_data_log.append(acc_data[-1])
+    # gyro_data_log.append(gyro_data[-1])
+    # q_simple = q_simple * slow_quatern_from_data(data, delay=0.001)  # this appends non-filtered quaternions from gyro
+    # q_fast = raw_quatern_from_data(q_fast, data, delay=0.001)  # this obtains fast quaternion from gyro
+    # q_madj = madgwick_filtered(q_madj, data, delay=0.001, beta=0.1)  # this obtains madjwick-filtered quaternion
+    # detected_events.append(dict(actions))
+    # quatertnion_data2.append(q_fast)
+    # raw_log.append(q_fast.rotate(v_raw))
+    # quatertnion_data3.append(q_madj)
+    # filtered_log.append(q_madj.rotate(v_filtered))
+    pass
 
 
 if __name__ == '__main__':
