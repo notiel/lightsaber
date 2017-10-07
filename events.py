@@ -1,12 +1,10 @@
-import serial
 from collections import deque
 from math import sqrt
 
 SWING_HIGH_W = 1000000  # threshold for angular acceleration for swing detect in CU(conditional unit)
-SWING_LOW_W  = 200000
+SWING_LOW_W = 200000
 STAB_LOW_W = 1000000  # low threshold for angular velocity for stab detect in CU
 STAB_HIGH_A = 20000000  # threshold for acceleration for stab detect in CU
-# HIT_HIGH_A = 0
 HIT_HIGH_A = 200000000  # threshols for acceleration for hit detect in CU
 SWING_HIGH_A = 21000000
 SWING_TIME = 10  # number of measurements to detect swing
@@ -63,7 +61,6 @@ def update_gyro_data(parameters: dict, actions: dict, w_curr: int, time: int):
         actions['stab'] = 0
     if w_curr < SWING_LOW_W:
         parameters['w_rising'] = 0
-
 
 
 def check_hit_with_accelerometer_and_change(acc_data: deque, time: int, parameters: dict, hit: int) -> bool:
@@ -132,19 +129,21 @@ def check_new_swing(gyro_data, time, parameters, swing) -> bool:
     :return: 1 if swing else 0
     """
     if not swing:
-        div = sum([(gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) for i in
+        div = sum(
+            [(gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) for i
+             in
              [1, 2]])
-        if (parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME and div > SWING_HIGH_W) or (parameters['a_swing'] and (time - parameters['a_swing_start'] > SWING_TIME)):
+        if (parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME and div > SWING_HIGH_W) or (
+            parameters['a_swing'] and (time - parameters['a_swing_start'] > SWING_TIME)):
             print('SWING started at %i' % time)
             if not time in parameters['swing_starts']:
                 parameters['swing_starts'].append(time)
             return True
         return False
     if parameters['w_rising'] == 0:
-       print ('SWING ended at %i' % time)
-       return False
+        print('SWING ended at %i' % time)
+        return False
     return True
-
 
 
 def check_swing(gyro_data, time, parameters) -> bool:
@@ -186,57 +185,3 @@ def check_stab(acc_data, gyro_data, time, parameters) -> bool:
                 parameters['stab_starts'].append(parameters['a_start'])
         return True
     return False
-
-
-def get_new_states(acc_data: deque, gyro_data: deque, parameters: dict, data: str, time: int, actions: dict) -> dict:
-    """
-    :param acc_data: queue with last acc ten measurements
-    :param gyro_data: queue with last ten gyro measurements
-    :param parameters: parameters of system state for current moment
-    :param levels: constants to compare angular velocity and acceleration with
-    :param data: new data from IMU
-    :param time: current time counter
-    :param actions:  current state of each action (swing, spin, clash, stab)
-    :return: new actions state
-    """
-    data = data.split(';')
-    accel = list(map(int, data[0].split()))
-    acc_data.append(accel)
-    gyro = list(map(int, data[1].split()))
-    gyro_data.append(gyro)
-    a_curr = sum([accel[i] * accel[i] for i in range(3)])
-    w_curr = sum([gyro[i] * gyro[i] for i in [1, 2]])
-    update_acc_data(parameters, actions, a_curr, time)
-    update_gyro_data(parameters, actions, w_curr, time)
-    actions['hit'] = check_hit_with_accelerometer_and_change(acc_data, time, parameters, actions['hit'])
-    if time>10:
-        actions['swing'] = check_new_swing(gyro_data, time, parameters, actions['swing'])
-    if not actions['stab']:
-        actions['stab'] = check_stab(acc_data, gyro_data, time, parameters)
-    parameters['w_prev'] = w_curr
-    return actions
-
-
-def main():
-    acc_data = deque(maxlen=10)
-    gyro_data = deque(maxlen=10)
-    parameters = {"w_prev": 0, 'a_high': 0, 'w_rising': 0, 'w_low': 0, 'a_start': -1, 'w_start': -1, 'hit_start': -1,
-                  'stab_start': -1, 'a_swing': 0,
-                  'a_stab_start': -1, 'a_stab': 0, 'w_low_start': -1, 'swing_starts': [], 'hit_starts': [],
-                  'stab_starts': []}
-    actions = {'spin': 0, 'swing': 0, 'hit': 0, 'stab': 0}
-    time = 0
-    f = open("res_data1.txt")
-    for data in f:
-        time += 1
-        actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
-    print("Swing starts: %s" % " ".join(list(map(str, parameters['swing_starts']))))
-    print("Number of swings %s" % len(parameters['swing_starts']))
-    print("Hit starts: %s" % " ".join(list(map(str, parameters['hit_starts']))))
-    print("Number of hits %s" % len(parameters['hit_starts']))
-    print("Stab starts: %s" % " ".join(list(map(str, parameters['stab_starts']))))
-    print("Number of stabs %s" % len(parameters['stab_starts']))
-
-
-if __name__ == '__main__':
-    main()
