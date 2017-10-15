@@ -1,9 +1,7 @@
 # import serial
 from collections import deque
-
 from matplotlib import pyplot as plot
 
-# HIT_HIGH_A = 0
 import events
 from logging_logic import create_data_storage, calculate_and_collect, plot_collected
 from utils import data_split
@@ -26,9 +24,12 @@ def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str,
     w_curr = sum([gyro[i] * gyro[i] for i in [1, 2]])
     events.update_acc_data(parameters, actions, a_curr, time)
     events.update_gyro_data(parameters, actions, w_curr, time)
-    actions['hit'] = events.check_hit_with_accelerometer_and_change(acc_data, time, parameters, actions['hit'])
     if time > 10:
         actions['swing'] = events.check_new_swing(gyro_data, time, parameters, actions['swing'])
+        actions['hit'] = events.check_hit_with_accelerometer_and_change(acc_data, time, parameters, actions['hit'])
+        if actions['swing']:
+            actions['spin'] = events.check_spin(time, parameters, actions['spin'])
+
     if not actions['stab']:
         actions['stab'] = events.check_stab(acc_data, gyro_data, time, parameters)
     parameters['w_prev'] = w_curr
@@ -38,13 +39,13 @@ def main():
     acc_data = deque(maxlen=10)
     gyro_data = deque(maxlen=10)
 
-    parameters = {"w_prev": 0, 'a_high': 0, 'w_rising': 0, 'w_low': 0, 'a_start': -1, 'w_start': -1, 'hit_start': -1,
+    parameters = {"w_prev": 0, 'a_high': 0, 'w_rising': 0, 'w_low': 0, 'a_hit_start': -1, 'w_start': -1, 'hit_start': -1,
                   'stab_start': -1, 'a_swing': 0,
                   'a_stab_start': -1, 'a_stab': 0, 'w_low_start': -1, 'swing_starts': [], 'hit_starts': [],
                   'stab_starts': []}
     actions = {'spin': 0, 'swing': 0, 'hit': 0, 'stab': 0}
     time = 0
-    f = open("res/55.txt")
+    f = open("res/spin.txt")
     config = {
         'delay': 0.01,
         'beta': 0.03,
@@ -63,8 +64,8 @@ def main():
         actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
         calculate_and_collect(data, config, log_storage, actions=actions)
 
-    plot_collected(config, log_storage)
-    plot.show()
+   # plot_collected(config, log_storage)
+    #plot.show()
 
 
     print("Swing starts: %s" % " ".join(list(map(str, parameters['swing_starts']))))
