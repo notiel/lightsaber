@@ -1,18 +1,18 @@
 from collections import deque
 from math import sqrt
 
-SWING_HIGH_W = 2   #threshold for angular acceleration for swing detect in rad/sec
-SWING_LOW_W  = 1.1 #threshols for angular acceleration for end of swing detect in rad/sec
+SWING_HIGH_W = 3   #threshold for angular acceleration for swing detect in rad/sec
+SWING_LOW_W  = 1.2 #threshols for angular acceleration for end of swing detect in rad/sec
 SWING_HIGH_A = 350  #threshold for accelerometer for swing detection in m/s
 SWING_LOW_A = 225 #threshold for accelerometer for end of swing detection in m/s
 SWING_TIME = 5  # number of measurements to detect swing
 STAB_TIME = 5  # number of measurements to detect stab
-STAB_LOW_W = 700000  # low threshold for angular velocity for stab detect in CU
-STAB_HIGH_A = 20000000  # threshold for acceleration for stab detect in CU
+STAB_LOW_W = 0.5  # low threshold for angular velocity for stab detect in CU
+STAB_HIGH_A = 900  # threshold for acceleration for stab detect in CU
 HIT_HIGH_A = 600  # threshols for acceleration for hit detect in CU
 HIT_TIME = 5  # number of measurements to detect hit using acceleration
 HIT_PAUSE = 50  # minimal time pause between different hits
-SPIN_TIME = 100
+SPIN_TIME = 40
 
 
 def update_acc_data(parameters: dict, actions: dict, a_curr: float, time: int):
@@ -48,9 +48,10 @@ def update_gyro_data(parameters: dict, actions: dict, w_curr: float, time: int):
     :param time time counter
     :return:
     """
-    if parameters['w_prev'] < w_curr and parameters['w_rising'] == 0:
-        parameters['w_rising'] = 1
-        parameters['w_start'] = time
+    if not actions['swing']:
+        if parameters['w_prev'] < w_curr and parameters['w_rising'] == 0:
+            parameters['w_rising'] = 1
+            parameters['w_start'] = time
     if w_curr < SWING_LOW_W:
         parameters['w_rising'] = 0
     """if parameters['w_prev'] > w_curr:
@@ -120,7 +121,7 @@ def check_hit_with_change(acc_data: deque, time: int, parameters, hit) -> bool:
         return False
 
 
-def check_new_swing(gyro_data, time, parameters, swing) -> bool:
+def check_new_swing(gyro_data, acc_data, time, parameters, actions) -> bool:
     """
     function detects swing. Swing is detected if angular velocity rises during last 10 measurements
     and angular acceleration     for this time is more then SWING_HIGH_W threshold
@@ -130,28 +131,44 @@ def check_new_swing(gyro_data, time, parameters, swing) -> bool:
     :param swing or not
     :return: 1 if swing else 0
     """
-    if not swing:
-        div = sum(
-            [(gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) for i
-             in [1, 2]])
+    if not actions['swing']:
+        parameters['swing_stop'] = -1
+        #div = sum(
+        #    [(gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) for i
+        #     in [1, 2]])
+        div = sum([gyro_data[0][i]*gyro_data[0][i] for i in [1, 2]])
         if (parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME and div > SWING_HIGH_W) or (parameters['a_swing'] and (time - parameters['a_swing_start'] > SWING_TIME)):
             print('SWING started at %i' % time)
             if time not in parameters['swing_starts']:
                 parameters['swing_starts'].append(time)
             return True
         return False
-    if parameters['w_rising'] == 0 and parameters['a_swing'] == 0:
-        print('SWING ended at %i' % time)
-        return False
+    change = 0
+    mul = sum([acc_data[0][j] * acc_data[9][j] for j in range(3)])
+    if mul < -400:
+        change = 1
+    if (parameters['w_rising'] == 0 and parameters['a_swing'] == 0) or change>0:
+        if parameters['swing_stop'] == -1:
+           parameters['swing_stop'] = time
+           print('Swing_stop %i' %time)
+        if time - parameters['swing_stop'] >=3 and parameters['swing_stop'] != -1:
+           print('SWING ended at %i change: %i' % (time, change))
+           return False
+           actions['spin'] = 0
         #parameters['a_swing'] = 0
     return True
 
 
 def check_spin(time, parameters, spin):
+    if spin:
+        return True
+    if time == 132:
+        pass
     if (time - parameters['swing_starts'][-1]) > SPIN_TIME and not spin:
         print('SPIN started at %i' % time)
         return True
     return False
+
 
 def check_swing(gyro_data, time, parameters) -> bool:
     """
