@@ -2,7 +2,9 @@ from collections import deque
 from math import sqrt
 
 SWING_HIGH_W = 3   #threshold for angular acceleration for swing detect in rad/sec
-SWING_LOW_W  = 1.2 #threshols for angular acceleration for end of swing detect in rad/sec
+SWING_LOW_W  = 2       #threshols for angular acceleration for end of swing detect in rad/sec
+SWING_PROCENT = 0.2   #percent to end swing
+SWING_TIME_END = 3    #number of measurements to leave swing
 SWING_HIGH_A = 350  #threshold for accelerometer for swing detection in m/s
 SWING_LOW_A = 225 #threshold for accelerometer for end of swing detection in m/s
 SWING_TIME = 5  # number of measurements to detect swing
@@ -10,9 +12,10 @@ STAB_TIME = 5  # number of measurements to detect stab
 STAB_LOW_W = 0.5  # low threshold for angular velocity for stab detect in CU
 STAB_HIGH_A = 900  # threshold for acceleration for stab detect in CU
 HIT_HIGH_A = 600  # threshols for acceleration for hit detect in CU
-HIT_TIME = 5  # number of measurements to detect hit using acceleration
+HIT_TIME = 10  # number of measurements to detect hit using acceleration
 HIT_PAUSE = 50  # minimal time pause between different hits
-SPIN_TIME = 40
+HIT_SCALAR_LEVEL = -200 #scalar product level
+SPIN_TIME = 40 #time to start spin
 
 
 def update_acc_data(parameters: dict, actions: dict, a_curr: float, time: int):
@@ -29,14 +32,16 @@ def update_acc_data(parameters: dict, actions: dict, a_curr: float, time: int):
     if a_curr >= SWING_HIGH_A and parameters['a_swing'] == 0:
         parameters['a_swing_start'] = time
         parameters['a_swing'] = 1
-    if a_curr >= STAB_HIGH_A and parameters['a_stab'] == 0:
+    if a_curr < SWING_LOW_A:
+        parameters['a_swing'] = 0
+        parameters['a_swing_start'] = -1
+    """if a_curr >= STAB_HIGH_A and parameters['a_stab'] == 0:
         parameters['a_stab'] = 1
         parameters['a_stab_start'] = time
     if a_curr < STAB_HIGH_A:
         parameters['a_stab'] = 0
-        actions['stab'] = 0
-    if a_curr < SWING_LOW_A:
-        parameters['a_swing'] = 0
+        actions['stab'] = 0"""
+
 
 
 def update_gyro_data(parameters: dict, actions: dict, w_curr: float, time: int):
@@ -53,17 +58,21 @@ def update_gyro_data(parameters: dict, actions: dict, w_curr: float, time: int):
             parameters['w_rising'] = 1
             parameters['w_start'] = time
     if w_curr < SWING_LOW_W:
+        parameters['w_swing'] = 0
+    else:
+        parameters['w_swing'] = 1
+    if parameters['w_prev'] > w_curr:
         parameters['w_rising'] = 0
-    """if parameters['w_prev'] > w_curr:
-        parameters['w_rising'] = 0
-        actions['swing'] = 0"""
-    if w_curr < STAB_LOW_W and parameters['w_low'] == 0:
+        parameters['w_start'] = -1
+        """actions['swing'] = 0"""
+    """if w_curr < STAB_LOW_W and parameters['w_low'] == 0:
         parameters['w_low_start'] = time
         parameters['w_low'] = 1
     if w_curr > STAB_LOW_W:
         parameters['w_low'] = 0
         actions['stab'] = 0
-
+    """
+    print("w = %f, started to rise = %i" % (w_curr, parameters['w_start']))
 
 def check_hit_with_accelerometer_and_change(acc_data: deque, time: int, parameters: dict, hit: int) -> bool:
     """
@@ -82,10 +91,10 @@ def check_hit_with_accelerometer_and_change(acc_data: deque, time: int, paramete
             return 1"""
         change = 0
         for i in range(min(HIT_TIME - 1, len(acc_data) - 1)):
-            mul = sum([acc_data[0][j] * acc_data[i + 1][j] for j in range(3)])
-            if mul < 0:
+            mul = sum([acc_data[9][j] * acc_data[9 - 1][j] for j in range(3)])
+            if mul < HIT_SCALAR_LEVEL:
                 change += 1
-            if change and hit == 0 and (
+            if change>0 and hit == 0 and (
                         not parameters['hit_starts'] or time - parameters['hit_starts'][-1] > HIT_PAUSE):
                 print('HIT! at %i' % time)
                 if time not in parameters['hit_starts']:
@@ -110,7 +119,7 @@ def check_hit_with_change(acc_data: deque, time: int, parameters, hit) -> bool:
     change = 0
     for i in range(len(acc_data) - 2):
         mul = sum([acc_data[i][j] * acc_data[i + 2][j] for j in range(3)])
-        if mul < 0:
+        if mul < -HIT_SCALAR_LEVEL:
             change += 1
         if change > 0 and hit == 0:
             print('HIT! at %i' % time)
@@ -119,6 +128,43 @@ def check_hit_with_change(acc_data: deque, time: int, parameters, hit) -> bool:
             return True
     if change == 0:
         return False
+
+def check_dynamic_swing(gyro_data, time, parameters, actions) -> bool:
+    """
+    function detects swing movement using
+    :param gyro_data: gyroscope data
+    :param time: current time
+    :param parameters: list with parameters of system
+    :param actions: list of actions
+    :return: True if swing else False
+    """
+    w = sum([gyro_data[9][i]*gyro_data[9][i] for i in [1, 2]])
+    #print("w = %f, started to rise = %i, is rising = %f" % (w, parameters['w_start'], parameters['w_rising']))
+    if actions['swing']:
+        if w > parameters['w_swing_max']:
+            parameters['w_swing_max'] = w
+        if parameters['w_rising'] == 0 and w < SWING_PROCENT*parameters['w_swing_max']:
+            parameters['swing_stop'] += 1
+            if parameters['swing_stop'] >= SWING_TIME_END:
+                parameters['swing_stop'] = 0
+                print('SWING ended at %i, w_level= %i' % (time, parameters['w_swing_max']))
+                actions['spin'] = 0
+                parameters['w_swing_max'] = SWING_LOW_W
+                return False
+        else:
+            parameters['swing_stop'] = 0
+        return True
+    if not actions['swing']:
+        parameters['swing_stop'] = 0
+        if (parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME and w > SWING_HIGH_W):
+            #or (parameters['a_swing'] and (time - parameters['a_swing_start'] > SWING_TIME)):
+            print('SWING started at %i' % time)
+            parameters['w_start'] = 1
+            if time not in parameters['swing_starts']:
+                parameters['swing_starts'].append(time)
+            return True
+        return False
+
 
 
 def check_new_swing(gyro_data, acc_data, time, parameters, actions) -> bool:
@@ -131,32 +177,38 @@ def check_new_swing(gyro_data, acc_data, time, parameters, actions) -> bool:
     :param swing or not
     :return: 1 if swing else 0
     """
+    if actions['swing']:
+        change = 0
+        mul = sum([acc_data[0][j] * acc_data[9][j] for j in range(3)])
+        if mul < -400:
+            change = 1
+        #print(parameters['w_swing'])
+        if (parameters['w_swing']) == 0:
+            # and parameters['a_swing'] == 0) or change>0:
+            parameters['swing_stop'] += 1
+            if parameters['swing_stop'] >= 1:
+                parameters['swing_stop'] = 0
+                print('SWING ended at %i change: %i' % (time, change))
+                actions['spin'] = 0
+                return False
+        else:
+            parameters['swing_stop'] = 0
+            # parameters['a_swing'] = 0
+        return True
     if not actions['swing']:
-        parameters['swing_stop'] = -1
+        parameters['swing_stop'] = 0
         #div = sum(
         #    [(gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) * (gyro_data[SWING_TIME - 1][i] - gyro_data[0][i]) for i
         #     in [1, 2]])
         div = sum([gyro_data[0][i]*gyro_data[0][i] for i in [1, 2]])
         if (parameters['w_rising'] and (time - parameters['w_start']) > SWING_TIME and div > SWING_HIGH_W) or (parameters['a_swing'] and (time - parameters['a_swing_start'] > SWING_TIME)):
             print('SWING started at %i' % time)
+            parameters['w_start'] = 1
             if time not in parameters['swing_starts']:
                 parameters['swing_starts'].append(time)
             return True
         return False
-    change = 0
-    mul = sum([acc_data[0][j] * acc_data[9][j] for j in range(3)])
-    if mul < -400:
-        change = 1
-    if (parameters['w_rising'] == 0 and parameters['a_swing'] == 0) or change>0:
-        if parameters['swing_stop'] == -1:
-           parameters['swing_stop'] = time
-           print('Swing_stop %i' %time)
-        if time - parameters['swing_stop'] >=3 and parameters['swing_stop'] != -1:
-           print('SWING ended at %i change: %i' % (time, change))
-           return False
-           actions['spin'] = 0
-        #parameters['a_swing'] = 0
-    return True
+
 
 
 def check_spin(time, parameters, spin):

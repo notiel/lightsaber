@@ -17,6 +17,8 @@ def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str,
     :param actions:  current state of each action (swing, spin, clash, stab)
     :return: new actions state
     """
+    if (time == 10):
+        pass
     accel, gyro = data_split(data)
     acc_data.append(accel)
     gyro_data.append(gyro)
@@ -25,13 +27,14 @@ def get_new_states(acc_data: iter, gyro_data: iter, parameters: dict, data: str,
     events.update_acc_data(parameters, actions, a_curr, time)
     events.update_gyro_data(parameters, actions, w_curr, time)
     if time > 10:
-        actions['swing'] = events.check_new_swing(gyro_data, time, parameters, actions['swing'])
+        actions['swing'] = events.check_dynamic_swing(gyro_data, time, parameters, actions)
+        #print("SWING = %s" % actions['swing'])
         actions['hit'] = events.check_hit_with_accelerometer_and_change(acc_data, time, parameters, actions['hit'])
-        if actions['swing']:
-            actions['spin'] = events.check_spin(time, parameters, actions['spin'])
+        #if actions['swing']:
+        #    actions['spin'] = events.check_spin(time, parameters, actions['spin'])
 
-    if not actions['stab']:
-        actions['stab'] = events.check_stab(acc_data, gyro_data, time, parameters)
+    #if not actions['stab']:
+     #   actions['stab'] = events.check_stab(acc_data, gyro_data, time, parameters)
     parameters['w_prev'] = w_curr
     return actions
 
@@ -40,12 +43,12 @@ def main():
     gyro_data = deque(maxlen=10)
 
     parameters = {"w_prev": 0, 'a_high': 0, 'w_rising': 0, 'w_low': 0, 'a_hit_start': -1, 'w_start': -1, 'hit_start': -1,
-                  'stab_start': -1, 'a_swing': 0,
+                  'stab_start': -1, 'a_swing': 0, 'swing_stop': 0, "w_swing": 0, 'w_swing_max': 0,
                   'a_stab_start': -1, 'a_stab': 0, 'w_low_start': -1, 'swing_starts': [], 'hit_starts': [],
                   'stab_starts': []}
     actions = {'spin': 0, 'swing': 0, 'hit': 0, 'stab': 0}
     time = 0
-    f = open("res/spin.txt")
+    f = open("res/IMU-neweights.txt")
     config = {
         'delay': 0.01,
         'beta': 0.03,
@@ -61,8 +64,11 @@ def main():
 
     for data in f:
         time += 1
+        if time == 210:
+           print(time)
+
         actions = get_new_states(acc_data, gyro_data, parameters, data, time, actions)
-        calculate_and_collect(data, config, log_storage, actions=actions)
+        #calculate_and_collect(data, config, log_storage, actions=actions)
 
    # plot_collected(config, log_storage)
     #plot.show()
