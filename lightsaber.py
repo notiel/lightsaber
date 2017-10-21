@@ -43,12 +43,12 @@ def main():
     gyro_data = deque(maxlen=10)
 
     parameters = {"w_prev": 0, 'a_high': 0, 'w_rising': 0, 'w_low': 0, 'a_hit_start': -1, 'w_start': -1, 'hit_start': -1,
-                  'stab_start': -1, 'a_swing': 0, 'swing_stop': 0, "w_swing": 0, 'w_swing_max': 0,
+                  'stab_start': -1, 'a_swing': 0, 'swing_stop': 0, "w_swing": 0, 'w_swing_max': events.SWING_LOW_W, 'swing_num':0,
                   'a_stab_start': -1, 'a_stab': 0, 'w_low_start': -1, 'swing_starts': [], 'hit_starts': [],
-                  'stab_starts': []}
+                  'stab_starts': [], 'spin_starts':[]}
     actions = {'spin': 0, 'swing': 0, 'hit': 0, 'stab': 0}
     time = 0
-    f = open("res/IMU-neweights.txt")
+    f = open("res/IMU-clash.txt")
     config = {
         'delay': 0.01,
         'beta': 0.03,
@@ -80,6 +80,8 @@ def main():
     print("Number of hits %s" % len(parameters['hit_starts']))
     print("Stab starts: %s" % " ".join(list(map(str, parameters['stab_starts']))))
     print("Number of stabs %s" % len(parameters['stab_starts']))
+    print("Spin starts: %s" % " ".join(list(map(str, parameters['spin_starts']))))
+    print("Number of spins %s" % len(parameters['spin_starts']))
 
 
 
